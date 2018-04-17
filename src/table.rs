@@ -123,11 +123,7 @@ impl Table {
     }
 }
 
-pub struct Block<'a> {
-    offset: u32,
-    data: &'a [u8],
-}
-
+#[derive(Default)]
 struct Header {
     plen: u16, // Overlap with base key.
     klen: u16, // Length of the diff.
@@ -138,4 +134,56 @@ struct Header {
 
 impl Header {
     pub const SIZE: u16 = 16;
+}
+
+
+pub struct Block<'a> {
+    offset: u32,
+    data: &'a [u8],
+}
+
+pub struct BlockIterator<'a, 'b:'a> {
+    block: &'a Block<'b>,
+    pos: u32,
+    base_key: Vec<u8>,
+    key: Vec<u8>,
+    val: Vec<u8>,
+    init: bool,
+    last: Header,
+}
+
+impl <'a, 'b: 'a> From<&'a Block<'b>> for BlockIterator<'a, 'b> {
+    fn from(block: &'a Block<'b>) -> Self {
+        BlockIterator {
+            block: block,
+            pos: 0,
+            base_key: vec![],
+            key: vec![],
+            val: vec![],
+            init: false,
+            last: Header::default(),
+        }
+    }
+
+}
+
+impl <'a, 'b: 'a> BlockIterator<'a, 'b> {
+    pub fn reset(&mut self)  {
+        self.pos = 0;
+        self.base_key = vec![];
+        self.key = vec![];
+        self.val = vec![];
+        self.init = false;
+        self.last = Header::default();
+    }
+}
+
+
+impl <'a, 'b: 'a> Iterator for BlockIterator<'a, 'b> {
+    type Item = (&'a [u8], &'a [u8]);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // TODO: implement it
+        unimplemented!()
+    }
 }
