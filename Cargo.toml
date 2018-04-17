@@ -1,0 +1,12 @@
+[package]
+name = "spiderdb"
+version = "0.1.0"
+authors = ["caojiafeng"]
+
+[dependencies]
+skiplist = "0.2.10"
+threadpool = "1.7.1"
+crossbeam = "0.3.2"
+memmap = "0.6.2"
+byteorder = "1.2.2"
+serde = "1.0.38"
