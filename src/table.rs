@@ -18,7 +18,7 @@ pub struct Table {
     fd: File,
     table_size: u64,
     mmap: Mmap,
-    blocks: Vec<Block>, // TODO: self referential struct
+    block_index: Vec<KeyOffset>,
 }
 
 struct KeyOffset {
@@ -62,7 +62,21 @@ impl Table {
         Ok(table)
     }
 
-    fn read_block(mmap: &Mmap) -> io::Result<Vec<Block>> {
+    // TODO: impl Index<Block> instead of it.
+    // Need to track self referential struct.
+    pub fn block<'a>(&'a self, index: usize) -> io::Result<Block<'a>> {
+        let bi = &self.block_index[index];
+        let data = Table::read_mmap(&self.mmap, bi.offset, bi.len).map(|da| Block {
+            offset: bi.offset as u32,
+            data: da,
+        });
+        data
+    }
+
+    pub fn size(&self) -> u64 { self.table_size }
+    pub fn id(&self) -> u64 { self.id }
+
+    fn read_index(mmap: &Mmap) -> io::Result<Vec<KeyOffset>> {
         let mut read_pos = mmap.len() as u64;
         // read bloom size
         read_pos -= 4;
@@ -88,21 +102,16 @@ impl Table {
 
         let mut prev = 0;
         let mut block_index = Vec::with_capacity(restart_len);
-        let mut blocks = Vec::with_capacity(restart_len);
         for i in 0..restart_len {
             let off = offsets_buf.read_u32::<BigEndian>()?;
             block_index[i] = KeyOffset {
                 offset: prev as usize,
                 len: (off - prev) as usize,
             };
-            blocks[i] = Block {
-                offset: prev as u32,
-                data: Table::read_mmap(mmap, prev as usize, (off - prev) as usize)?
-            };
             prev = off;
         }
 
-        Ok(blocks)
+        Ok(block_index)
     }
 
     fn read_mmap(mmap: &[u8], offset: usize, size: usize) -> io::Result<&[u8]> {
@@ -114,20 +123,6 @@ impl Table {
     }
 }
 
-//impl<'a> Index<usize> for &'a Table {
-//    type Output = io::Result<Block<'a>>;
-//
-//    fn index(&self, index: usize) -> &Self::Output {
-//        let bi = &self.block_index[index];
-//        let data = Table::read_mmap(&self.mmap, bi.offset, bi.len)
-//            .map(|da| Block{
-//            offset: bi.offset as u32,
-//            data: da,
-//        });
-//        data
-//    }
-//}
-
 pub struct Block<'a> {
     offset: u32,
     data: &'a [u8],
@@ -137,7 +132,8 @@ struct Header {
     plen: u16, // Overlap with base key.
     klen: u16, // Length of the diff.
     vlen: u16, // Length of value.
-    prev: u32, // Offset for the previous key-value pair. The offset is relative to block base offset.
+    // Offset for the previous key-value pair. The offset is relative to block base offset.
+    prev: u32,
 }
 
 impl Header {
