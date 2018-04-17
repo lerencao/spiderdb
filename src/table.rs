@@ -1,5 +1,5 @@
-extern crate memmap;
 extern crate byteorder;
+extern crate memmap;
 use std::fs;
 use std::fs::File;
 use std::fs::Metadata;
@@ -11,12 +11,14 @@ use std::io::SeekFrom;
 use self::byteorder::ReadBytesExt;
 use self::byteorder::BigEndian;
 use std::io::Cursor;
+use std::ops::Index;
 
 pub struct Table {
     id: u64,
     fd: File,
     table_size: u64,
     mmap: Mmap,
+    blocks: Vec<Block>, // TODO: self referential struct
 }
 
 struct KeyOffset {
@@ -48,57 +50,59 @@ impl Table {
                 mmap
             }
         };
-
+        let block_index = Table::read_index(&mmap)?;
         let table = Table {
             id: file_id,
             table_size: mmap.len() as u64,
             fd,
             mmap,
+            block_index,
         };
 
         Ok(table)
     }
 
-    fn read_index(&mut self) -> io::Result<()> {
-        let mut read_pos = self.table_size;
+    fn read_block(mmap: &Mmap) -> io::Result<Vec<Block>> {
+        let mut read_pos = mmap.len() as u64;
         // read bloom size
         read_pos -= 4;
         let bloom_len = {
-            let buf = Table::read_mmap(&self.mmap, read_pos as usize, 4)?;
+            let buf = Table::read_mmap(mmap, read_pos as usize, 4)?;
             let mut cur = Cursor::new(buf);
             cur.read_u32::<BigEndian>()?
         };
         // read bloom
         read_pos -= bloom_len as u64;
         let bloom_buf = {
-            let buf = Self::read_mmap(&self.mmap, read_pos as usize, bloom_len as usize)?;
+            let buf = Self::read_mmap(mmap, read_pos as usize, bloom_len as usize)?;
             buf
         };
         // read restart len
         read_pos -= 4;
         let restart_len: usize = {
-            let mut buf = Self::read_mmap(&self.mmap, read_pos as usize, 4)?;
+            let mut buf = Self::read_mmap(mmap, read_pos as usize, 4)?;
             buf.read_u32::<BigEndian>()? as usize
         };
         read_pos -= 4 * (restart_len as u64);
-        let mut offsets_buf = Table::read_mmap(&self.mmap, read_pos as usize, 4 * restart_len)?;
+        let mut offsets_buf = Table::read_mmap(mmap, read_pos as usize, 4 * restart_len)?;
 
         let mut prev = 0;
         let mut block_index = Vec::with_capacity(restart_len);
+        let mut blocks = Vec::with_capacity(restart_len);
         for i in 0..restart_len {
             let off = offsets_buf.read_u32::<BigEndian>()?;
             block_index[i] = KeyOffset {
                 offset: prev as usize,
                 len: (off - prev) as usize,
             };
+            blocks[i] = Block {
+                offset: prev as u32,
+                data: Table::read_mmap(mmap, prev as usize, (off - prev) as usize)?
+            };
             prev = off;
         }
 
-        for ref ko in block_index {
-            let block_header = Table::read_mmap(&self.mmap, ko.offset, Header::SIZE as usize)?;
-            // TODO: read klen
-        }
-        Ok(())
+        Ok(blocks)
     }
 
     fn read_mmap(mmap: &[u8], offset: usize, size: usize) -> io::Result<&[u8]> {
@@ -108,15 +112,25 @@ impl Table {
             return Ok(&mmap[offset..offset + size]);
         }
     }
+}
 
-//    fn read(&mut self, offset: usize, size: usize) -> io::Result<&[u8]> {
-//        let v = self.mmap.as_ref();
-//        if v.len() < offset + size {
-//            return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
-//        } else {
-//            return Ok(&v[offset..offset + size]);
-//        }
+//impl<'a> Index<usize> for &'a Table {
+//    type Output = io::Result<Block<'a>>;
+//
+//    fn index(&self, index: usize) -> &Self::Output {
+//        let bi = &self.block_index[index];
+//        let data = Table::read_mmap(&self.mmap, bi.offset, bi.len)
+//            .map(|da| Block{
+//            offset: bi.offset as u32,
+//            data: da,
+//        });
+//        data
 //    }
+//}
+
+pub struct Block<'a> {
+    offset: u32,
+    data: &'a [u8],
 }
 
 struct Header {
@@ -129,5 +143,3 @@ struct Header {
 impl Header {
     pub const SIZE: u16 = 16;
 }
-
-
