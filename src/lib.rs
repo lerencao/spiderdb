@@ -1,3 +1,12 @@
+#[macro_use]
+extern crate failure;
+#[macro_use]
+extern crate serde_derive;
+
+extern crate byteorder;
+extern crate memmap;
+extern crate serde;
+
 pub mod table;
 
 use std::fs;
