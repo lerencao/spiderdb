@@ -309,3 +309,12 @@ impl<'a, 'b: 'a> DoubleEndedIterator for BlockIterator<'a, 'b> {
         unimplemented!()
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn assert_always_true() {
+        assert!(true)
+    }
+}
