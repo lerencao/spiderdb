@@ -1,17 +1,14 @@
 use super::*;
 use failure::Error;
 
-pub struct BlockIterator<'a, 'b: 'a> {
-    block: &'a Block<'b>,
-    pos: u32, // position in block's data
-    base_key: Vec<u8>,
-    last: Option<Result<Header, Error>>,
-}
 
-impl<'a, 'b: 'a> From<&'a Block<'b>> for BlockIterator<'a, 'b> {
-    fn from(block: &'a Block<'b>) -> Self {
+impl<'a> IntoIterator for Block<'a> {
+    type Item = (Vec<u8>, Vec<u8>);
+    type IntoIter = BlockIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
         BlockIterator {
-            block,
+            block: self,
             pos: 0,
             base_key: vec![],
             last: None,
@@ -19,7 +16,18 @@ impl<'a, 'b: 'a> From<&'a Block<'b>> for BlockIterator<'a, 'b> {
     }
 }
 
-impl<'a, 'b: 'a> BlockIterator<'a, 'b> {
+pub struct BlockIterator<'b> {
+    block: Block<'b>,
+    pos: u32, // position in block's data
+    base_key: Vec<u8>,
+    last: Option<Result<Header, Error>>,
+}
+
+impl<'a> BlockIterator<'a> {
+    // get err if errored.
+    pub fn err(&self) -> Option<&Error> {
+        self.last.as_ref().and_then(|l| l.as_ref().err())
+    }
     pub fn reset(&mut self) {
         self.pos = 0;
         self.base_key = vec![];
@@ -114,7 +122,7 @@ impl<'a, 'b: 'a> BlockIterator<'a, 'b> {
     }
 }
 
-impl<'a, 'b: 'a> Iterator for BlockIterator<'a, 'b> {
+impl<'a> Iterator for BlockIterator<'a> {
     type Item = (Vec<u8>, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -130,7 +138,7 @@ pub enum SeekFrom {
     Current,
 }
 
-impl<'a, 'b: 'a> BlockIterator<'a, 'b> {
+impl<'a> BlockIterator<'a> {
     // seek the first key that >= prefix
     pub fn seek(&mut self, prefix: &[u8], from: SeekFrom) {
         self.last = None;
@@ -145,22 +153,68 @@ impl<'a, 'b: 'a> BlockIterator<'a, 'b> {
     }
 }
 
-struct TableIterator<'a> {
+impl Table {
+    pub fn iter(&self) -> TableIterator {
+        TableIterator::new(self)
+    }
+}
+
+pub struct TableIterator<'a> {
     t: &'a Table,
-    reversed: bool,
-    bpos: u32,
+    block_pos: u32,
+    block_iter: Option<BlockIterator<'a>>,
+    err: Option<Error>,
 }
 
 impl <'a> TableIterator<'a> {
-    pub fn new(t: &'a Table, reversed: bool) -> TableIterator<'a> {
+    pub fn new(t: &'a Table) -> TableIterator<'a> {
         TableIterator {
             t,
-            reversed,
-            bpos: 0,
+            block_pos: 0,
+            block_iter: None,
+            err: None,
         }
     }
 
+    // Reset iterator to the beginning.
     pub fn reset(&mut self) {
-        self.bpos = 0;
+        self.block_pos = 0;
+        self.block_iter = None;
+        self.err = None;
+    }
+
+    // Get err if any error occurred
+    pub fn err(&self) -> Option<&Error> {
+        self.err.as_ref().or_else(|| self.block_iter.as_ref().and_then(|bi| bi.err()))
+    }
+}
+
+
+impl<'a> Iterator for TableIterator<'a> {
+    type Item = (Vec<u8>, Vec<u8>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Check if error occurred.
+        if self.err().is_some() {
+            return None
+        }
+
+        // Check if no block left.
+        if self.block_pos as usize >= self.t.block_index.len() {
+            return None
+        }
+        if self.block_iter.is_none() {
+            let block_res = self.t.block(self.block_pos as usize);
+            let block_iter = block_res.unwrap().into_iter();
+            self.block_iter = Some(block_iter);
+        }
+        let item = self.block_iter.as_mut().unwrap().next();
+        if item.is_some() {
+            item
+        } else {
+            self.block_pos += 1;
+            self.block_iter = None;
+            self.next()
+        }
     }
 }
