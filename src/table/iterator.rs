@@ -1,5 +1,6 @@
 use super::*;
 use failure::Error;
+use std::convert::From;
 
 
 impl<'a> IntoIterator for Block<'a> {

@@ -1,5 +1,6 @@
 pub mod iterator;
-
+pub mod builder;
+pub mod values;
 use byteorder::BigEndian;
 use byteorder::ReadBytesExt;
 

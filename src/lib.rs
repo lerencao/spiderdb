@@ -1,3 +1,4 @@
+#![feature(option_filter)]
 extern crate byteorder;
 #[macro_use]
 extern crate failure;
@@ -9,6 +10,8 @@ extern crate serde_derive;
 use std::fs;
 
 pub mod table;
+pub mod level;
+pub mod txn;
 
 pub struct Config {
     dir: String,
@@ -28,7 +31,6 @@ impl DB {
         fs::create_dir_all(&cfg.value_dir).unwrap();
     }
 }
-
 
 #[cfg(test)]
 mod tests {
