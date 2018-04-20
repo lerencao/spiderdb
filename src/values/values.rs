@@ -40,11 +40,10 @@ impl ValueOption {
         ValueOption {
             dir: dir.to_str().unwrap().to_string(),
             segment_max_size,
-            sync
+            sync,
         }
     }
 }
-
 
 #[derive(Debug)]
 pub struct ValueLog {
@@ -61,7 +60,11 @@ use std::fmt::Formatter;
 use std::fmt::Result as FmtResult;
 impl Display for ValueLog {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        write!(f, "value_log(dir: {:?}, segment_max_size: {:?}, sync: {:?}, cur_fid: {:?})", &self.dir_path, self.segment_max_size, self.sync, self.cur_fid)
+        write!(
+            f,
+            "value_log(dir: {:?}, segment_max_size: {:?}, sync: {:?}, cur_fid: {:?})",
+            &self.dir_path, self.segment_max_size, self.sync, self.cur_fid
+        )
     }
 }
 
@@ -136,7 +139,7 @@ impl ValueLog {
             sync: opt.sync,
             cur_fid,
             log_files,
-            write_buffer: Vec::with_capacity(1024 * 8)
+            write_buffer: Vec::with_capacity(1024 * 8),
         })
     }
 
@@ -176,7 +179,7 @@ impl ValueLog {
         self.log_files.get(&self.cur_fid)
     }
 
-    pub fn write<'a>(&mut self, entries: &[Value]) -> IoResult<Vec<ValuePointer>> {
+    pub fn write(&mut self, entries: &[Value]) -> IoResult<Vec<ValuePointer>> {
         self.rollover_if_necessary()?;
         // TODO: shrunk buffer ?
         self.write_buffer.clear();

@@ -1,14 +1,14 @@
 #![feature(test)]
 #![feature(rustc_private)]
+extern crate rand;
 extern crate spiderdb;
 extern crate tempdir;
 extern crate test;
-extern crate rand;
 
 use test::Bencher;
 use spiderdb::values::values::{ValueLog, ValueOption};
 use spiderdb::values::write::Value;
-use rand::{Rand, StdRng, Rng};
+use rand::{Rand, Rng, StdRng};
 use std::path;
 #[bench]
 fn bench_value_write_sync(b: &mut Bencher) {
@@ -16,7 +16,7 @@ fn bench_value_write_sync(b: &mut Bencher) {
     let mut vl = ValueLog::open(&ValueOption::new(&tmp_dir, 1024 * 1024 * 96, true)).unwrap();
     let mut rng = rand::thread_rng();
 
-    b.iter( || {
+    b.iter(|| {
         let key: Vec<u8> = rng.gen_iter().take(100).collect();
         let value: Vec<u8> = rng.gen_iter().take(10000).collect();
         let pointers = vl.write(&[Value::new(&key, &value)]).unwrap();
@@ -32,7 +32,7 @@ fn bench_value_write_nosync(b: &mut Bencher) {
     let mut vl = ValueLog::open(&ValueOption::new(&tmp_dir, 1024 * 1024 * 96, false)).unwrap();
     let mut rng = rand::thread_rng();
 
-    b.iter( || {
+    b.iter(|| {
         let key: Vec<u8> = rng.gen_iter().take(100).collect();
         let value: Vec<u8> = rng.gen_iter().take(10000).collect();
         let pointers = vl.write(&[Value::new(&key, &value)]).unwrap();
@@ -41,4 +41,3 @@ fn bench_value_write_nosync(b: &mut Bencher) {
         }
     });
 }
-
