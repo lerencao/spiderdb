@@ -1,15 +1,15 @@
 extern crate crc;
-use self::crc::{crc32, Hasher32};
-use std::io::{Result as IoResult};
-use byteorder::{BigEndian, WriteBytesExt};
-#[derive(Clone)]
-pub struct Entry {
+use self::crc::{Hasher32, crc32};
+use std::io::Result as IoResult;
+use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct Value {
     key: Vec<u8>,
     value: Vec<u8>,
 }
-impl Entry {
-    pub fn new(key: &[u8], value: &[u8]) -> Entry {
-        Entry {
+impl Value {
+    pub fn new(key: &[u8], value: &[u8]) -> Value {
+        Value {
             key: key.to_vec(),
             value: value.to_vec(),
         }
@@ -27,9 +27,18 @@ impl EntryHeader {
         writer.write_u32::<BigEndian>(self.vlen)?;
         Ok(4 + 4)
     }
+
+    pub fn decode<T: ReadBytesExt>(reader: &mut T) -> IoResult<EntryHeader> {
+        let klen = reader.read_u32::<BigEndian>()?;
+        let vlen = reader.read_u32::<BigEndian>()?;
+        Ok(EntryHeader {
+            klen,
+            vlen
+        })
+    }
 }
 
-impl Entry {
+impl Value {
     fn get_header(&self) -> EntryHeader {
         EntryHeader {
             klen: self.key.len() as u32,
@@ -37,7 +46,25 @@ impl Entry {
         }
     }
 
-    pub fn encode<T: WriteBytesExt>(&self, writer: &mut T) ->  IoResult<u32> {
+    pub fn decode<T: ReadBytesExt>(reader: &mut T) -> IoResult<Value> {
+        let header = EntryHeader::decode(reader)?;
+        let mut key = Vec::with_capacity(header.klen as usize);
+        key.resize(header.klen as usize, 0);
+        let mut value = Vec::with_capacity(header.vlen as usize);
+        value.resize(header.vlen as usize, 0);
+
+        reader.read_exact(&mut key)?;
+        reader.read_exact(&mut value)?;
+        // TODO: check crc
+        let _crc32 = reader.read_u32::<BigEndian>()?;
+
+        Ok(Value {
+            key,
+            value
+        })
+    }
+
+    pub fn encode<T: WriteBytesExt>(&self, writer: &mut T) -> IoResult<u32> {
         let header = self.get_header();
         let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
 
@@ -58,6 +85,43 @@ impl Entry {
     }
 }
 
+#[derive(Copy, Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq)]
+pub struct ValuePointer {
+    fid: u32,
+    offset: u32,
+    len: u32,
+}
+
+impl ValuePointer {
+    const SIZE: u32 = 12;
+
+    pub fn new(fid: u32, offset: u32, len: u32) -> ValuePointer {
+        ValuePointer { fid, offset, len }
+    }
+    #[inline]
+    pub fn fid(&self) -> u32 {
+        self.fid
+    }
+    #[inline]
+    pub fn offset(&self) -> u32 {
+        self.offset
+    }
+    #[inline]
+    pub fn len(&self) -> u32 {
+        self.len
+    }
+
+    pub fn encode<T: WriteBytesExt>(&self, writer: &mut T) -> IoResult<u32> {
+        writer.write_u32::<BigEndian>(self.fid)?;
+        writer.write_u32::<BigEndian>(self.len)?;
+        writer.write_u32::<BigEndian>(self.offset)?;
+        writer.flush()?;
+        Ok(ValuePointer::SIZE)
+    }
+
+    pub fn decode() {}
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -75,13 +139,16 @@ mod test {
 
     #[test]
     pub fn test_entry_encode() {
-        let entry = Entry {
-            key: vec![1,2,3,4],
-            value: vec![5,6,7,8,9,10]
+        let entry = Value {
+            key: vec![1, 2, 3, 4],
+            value: vec![5, 6, 7, 8, 9, 10],
         };
         let mut buf = Vec::new();
         let len = entry.encode(&mut buf).unwrap();
         assert_eq!(8 + entry.key.len() + entry.value.len() + 4, len as usize);
-        assert_eq!(vec![1u8,2,3,4,5,6,7,8,9,10], &buf[8..(buf.len() - 4)]);
+        assert_eq!(
+            vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            &buf[8..(buf.len() - 4)]
+        );
     }
 }

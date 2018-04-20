@@ -11,29 +11,8 @@ use failure::Error;
 use std::fs::DirEntry;
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
-use std::io::{Result as IoResult, Seek, SeekFrom, Write};
-use super::write::Entry;
-
-#[derive(Copy, Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub struct ValuePointer {
-    fid: u32,
-    offset: u32,
-    len: u32,
-}
-
-impl ValuePointer {
-    const Size: u32 = 12;
-
-    pub fn encode<T: WriteBytesExt>(&self, writer: &mut T) -> Result<u32> {
-        writer.write_u32::<BigEndian>(self.fid)?;
-        writer.write_u32::<BigEndian>(self.len)?;
-        writer.write_u32::<BigEndian>(self.offset)?;
-        writer.flush()?;
-        Ok(ValuePointer::Size)
-    }
-
-    pub fn decode() {}
-}
+use std::io::{ErrorKind, Result as IoResult, Seek, SeekFrom, Write};
+use super::write::{Value, ValuePointer};
 
 use super::segment::LogFile;
 
@@ -118,7 +97,7 @@ impl ValueLog {
             None => 0,
         };
         let log_path = dir_path.join(Self::fid_to_pathbuf(cur_fid));
-        let mut file = OpenOptions::new()
+        let file = OpenOptions::new()
             .create(true)
             .read(true)
             .append(true)
@@ -161,6 +140,10 @@ impl ValueLog {
     pub fn segment_max_size(&self) -> u32 {
         self.segment_max_size
     }
+    pub fn write_offset(&self) -> Option<u32> {
+        self.active_segment().and_then(|s| s.write_offset())
+    }
+
     pub fn active_segment_mut(&mut self) -> Option<&mut LogFile> {
         self.log_files.get_mut(&self.cur_fid)
     }
@@ -168,33 +151,34 @@ impl ValueLog {
         self.log_files.get(&self.cur_fid)
     }
 
-    pub fn write<'a>(&mut self, entries: &[Entry]) -> IoResult<Vec<ValuePointer>> {
+    pub fn write<'a>(&mut self, entries: &[Value]) -> IoResult<Vec<ValuePointer>> {
         self.rollover_if_necessary()?;
+
         use self::bytes::BufMut;
 
         let mut buffer_writer = BytesMut::with_capacity(8 * 1024).writer();
         let mut value_pointers = Vec::with_capacity(entries.len());
-        let mut cur_offset: u32 = self.active_segment().and_then( |s| s.write_offset()).unwrap();
-        for entry in entries {
-            let len = entry.encode(&mut buffer_writer)?;
-            value_pointers.push(ValuePointer {
-                fid: self.cur_fid,
-                offset: cur_offset,
-                len: len
-            });
-            cur_offset += len;
+
+        {
+            let mut cur_offset: u32 = self.active_segment()
+                .and_then(|s| s.write_offset())
+                .unwrap();
+            for entry in entries {
+                let len = entry.encode(&mut buffer_writer)?;
+                value_pointers.push(ValuePointer::new(self.cur_fid, cur_offset, len));
+                cur_offset += len;
+            }
         }
 
         // flush after all entries written.
         {
             buffer_writer.flush()?;
             let segment = self.active_segment_mut().unwrap();
-            segment.write_all(buffer_writer.get_ref())?;
-            segment.flush()?;
+            segment.write_bytes(buffer_writer.get_ref(), true)?;
         }
 
-        let len = buffer_writer.get_ref().len() as u64;
         buffer_writer.get_mut().clear();
+
         Ok(value_pointers)
     }
 
@@ -227,6 +211,22 @@ impl ValueLog {
         }
 
         Ok(())
+    }
+}
+
+// Impl read related ops
+impl ValueLog {
+    pub fn read(&mut self, pointer: &ValuePointer) -> IoResult<Value> {
+        if (pointer.fid() == self.cur_fid && pointer.offset() >= self.write_offset().unwrap()) {
+            Err(ErrorKind::UnexpectedEof)?
+        }
+        match self.log_files.get_mut(&pointer.fid()) {
+            Some(segment) => {
+                let mut buf: &[u8] = &segment.read_bytes(pointer.offset(), pointer.len())?;
+                Value::decode(&mut buf)
+            }
+            None => Err(ErrorKind::UnexpectedEof)?,
+        }
     }
 }
 
@@ -297,7 +297,7 @@ mod tests {
             dir: tmp_dir.path().to_str().unwrap().to_string(),
             ..Default::default()
         }).unwrap();
-        let ents = vec![Entry::new(b"key1", b"value1")];
+        let ents = vec![Value::new(b"key1", b"value1")];
         let len = vl.write(&ents);
         assert!(len.is_ok());
     }
@@ -311,7 +311,7 @@ mod tests {
             segment_max_size: 32,
         }).unwrap();
 
-        let ents = vec![Entry::new(b"11", b"222222"); 2];
+        let ents = vec![Value::new(b"11", b"222222"); 2];
         vl.write(&ents).unwrap();
         assert!(vl.should_rollover());
         assert_eq!(0, vl.active_segment().unwrap().fid());
@@ -327,5 +327,57 @@ mod tests {
         vl.write(&ents[0..1]).unwrap();
         assert_eq!(2, vl.active_segment().unwrap().fid());
         assert!(!vl.should_rollover());
+    }
+
+    #[test]
+    fn test_read_and_write() {
+        let tmp_dir = tempdir::TempDir::new("value_log").unwrap();
+        let mut vl = ValueLog::open(&ValueOption {
+            dir: tmp_dir.path().to_str().unwrap().to_string(),
+            segment_max_size: 32,
+        }).unwrap();
+        let ents = vec![Value::new(b"1", b"1"), Value::new(b"2", b"2")];
+        let pointers = vl.write(&ents).unwrap();
+
+        // read
+        let value = vl.read(&pointers[0]);
+        assert!(value.is_ok());
+        assert_eq!(value.unwrap(), ents[0]);
+
+        // write anothers
+        let ents2 = vec![Value::new(b"3", b"3"), Value::new(b"4", b"4")];
+        let pointers2 = vl.write(&ents2).unwrap();
+        // then read
+        let value = vl.read(&pointers[1]);
+        assert!(value.is_ok());
+        assert_eq!(value.unwrap(), ents[1]);
+
+        // read anothers
+        for i in 0..pointers2.len() {
+            let value = vl.read(&pointers2[i]);
+            assert_eq!(ents2[i], value.unwrap());
+        }
+    }
+}
+
+#[cfg(test)]
+mod read_tests {
+    use super::*;
+    use std::fs::File;
+
+    #[test]
+    fn test_read_value() {
+        let tmp_dir = tempdir::TempDir::new("value_log").unwrap();
+        let mut vl = ValueLog::open(&ValueOption {
+            dir: tmp_dir.path().to_str().unwrap().to_string(),
+            segment_max_size: 32,
+        }).unwrap();
+        let ents = vec![Value::new(b"11", b"222222"), Value::new(b"22", b"333333")];
+        let pointers = vl.write(&ents).unwrap();
+        for i in 0..pointers.len() {
+            let value = vl.read(&pointers[i]);
+            assert!(value.is_ok());
+            assert_eq!(value.unwrap(), ents[i]);
+        }
     }
 }

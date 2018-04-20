@@ -1,5 +1,6 @@
 #![feature(option_filter)]
 extern crate byteorder;
+extern crate bytes;
 #[macro_use]
 extern crate failure;
 extern crate memmap;
