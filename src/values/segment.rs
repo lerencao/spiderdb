@@ -6,7 +6,7 @@ pub struct LogFile {
     file_path: PathBuf,
     file: File,
     readonly: bool,
-    write_offset: u64,
+    write_offset: u32,
 }
 
 impl LogFile {
@@ -19,7 +19,8 @@ impl LogFile {
             write_offset: 0
         };
         if !readonly {
-            f.write_offset = f.file.seek(SeekFrom::End(0))?;
+            // TODO: make sure that the file is not exceed 4GB, or else the u64 -> u32 will cause error.
+            f.write_offset = f.file.seek(SeekFrom::End(0))? as u32;
         }
         Ok(f)
     }
@@ -35,31 +36,20 @@ impl LogFile {
     }
 
     // current write offset
-    pub fn write_offset(&self) -> Option<u64> {
+    pub fn write_offset(&self) -> Option<u32> {
         if self.readonly {
             None
         } else {
             Some(self.write_offset)
         }
     }
-
-//    pub fn reopen(&mut self, readonly: bool) -> IoResult<()> {
-//        use std::mem::drop;
-//        let former = &self.file;
-//        drop(former);
-////        if readonly {
-////            self.readonly = true;
-////            self.write_offset = 0;
-////        }
-//        Ok(())
-//    }
 }
 
 use std::io::{Write, Result as IoResult};
 impl Write for LogFile {
     fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
         let write_size = self.file.write(buf)?;
-        self.write_offset += write_size as u64;
+        self.write_offset += write_size as u32;
         Ok(write_size)
     }
 

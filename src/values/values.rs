@@ -15,7 +15,7 @@ use std::io::{Result as IoResult, Seek, SeekFrom, Write};
 use super::write::Entry;
 
 #[derive(Copy, Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq)]
-struct ValuePointer {
+pub struct ValuePointer {
     fid: u32,
     offset: u32,
     len: u32,
@@ -39,14 +39,14 @@ use super::segment::LogFile;
 
 pub struct ValueLog {
     dir_path: PathBuf,
-    segment_max_size: u64,
+    segment_max_size: u32,
     log_files: HashMap<u32, LogFile>,
     cur_fid: u32,
 }
 
 pub struct ValueOption {
     dir: String,
-    segment_max_size: u64,
+    segment_max_size: u32,
 }
 
 impl Default for ValueOption {
@@ -158,7 +158,7 @@ impl ValueLog {
 
 // Impl write related operations on value log
 impl ValueLog {
-    pub fn segment_max_size(&self) -> u64 {
+    pub fn segment_max_size(&self) -> u32 {
         self.segment_max_size
     }
     pub fn active_segment_mut(&mut self) -> Option<&mut LogFile> {
@@ -168,14 +168,23 @@ impl ValueLog {
         self.log_files.get(&self.cur_fid)
     }
 
-    pub fn write<'a>(&mut self, entries: &[Entry]) -> IoResult<u64> {
+    pub fn write<'a>(&mut self, entries: &[Entry]) -> IoResult<Vec<ValuePointer>> {
         self.rollover_if_necessary()?;
         use self::bytes::BufMut;
 
         let mut buffer_writer = BytesMut::with_capacity(8 * 1024).writer();
+        let mut value_pointers = Vec::with_capacity(entries.len());
+        let mut cur_offset: u32 = self.active_segment().and_then( |s| s.write_offset()).unwrap();
         for entry in entries {
-            entry.encode(&mut buffer_writer)?;
+            let len = entry.encode(&mut buffer_writer)?;
+            value_pointers.push(ValuePointer {
+                fid: self.cur_fid,
+                offset: cur_offset,
+                len: len
+            });
+            cur_offset += len;
         }
+
         // flush after all entries written.
         {
             buffer_writer.flush()?;
@@ -186,8 +195,9 @@ impl ValueLog {
 
         let len = buffer_writer.get_ref().len() as u64;
         buffer_writer.get_mut().clear();
-        Ok(len as u64)
+        Ok(value_pointers)
     }
+
     fn should_rollover(&self) -> bool {
         let cur_write_offset = self.active_segment().unwrap().write_offset().unwrap();
         cur_write_offset >= self.segment_max_size
@@ -239,7 +249,7 @@ mod tests {
 
         let vl = ValueLog::open(&ValueOption {
             dir: tmp_dir.path().to_str().unwrap().to_string(),
-            .. Default::default()
+            ..Default::default()
         });
 
         assert!(vl.is_ok(), format!("{:?}", vl.err()));
