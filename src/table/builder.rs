@@ -1,5 +1,3 @@
 use table::Table;
 
-struct TableBuilder {
-    
-}
+struct TableBuilder {}

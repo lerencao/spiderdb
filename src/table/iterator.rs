@@ -2,7 +2,6 @@ use super::*;
 use failure::Error;
 use std::convert::From;
 
-
 impl<'a> IntoIterator for Block<'a> {
     type Item = (Vec<u8>, Vec<u8>);
     type IntoIter = BlockIterator<'a>;
@@ -145,7 +144,7 @@ impl<'a> BlockIterator<'a> {
         self.last = None;
         match from {
             SeekFrom::Start => self.reset(),
-            _ => {},
+            _ => {}
         }
         let found = self.find(|kv| {
             let key: &[u8] = &kv.0;
@@ -167,7 +166,7 @@ pub struct TableIterator<'a> {
     err: Option<Error>,
 }
 
-impl <'a> TableIterator<'a> {
+impl<'a> TableIterator<'a> {
     pub fn new(t: &'a Table) -> TableIterator<'a> {
         TableIterator {
             t,
@@ -186,10 +185,11 @@ impl <'a> TableIterator<'a> {
 
     // Get err if any error occurred
     pub fn err(&self) -> Option<&Error> {
-        self.err.as_ref().or_else(|| self.block_iter.as_ref().and_then(|bi| bi.err()))
+        self.err
+            .as_ref()
+            .or_else(|| self.block_iter.as_ref().and_then(|bi| bi.err()))
     }
 }
-
 
 impl<'a> Iterator for TableIterator<'a> {
     type Item = (Vec<u8>, Vec<u8>);
@@ -197,12 +197,12 @@ impl<'a> Iterator for TableIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         // Check if error occurred.
         if self.err().is_some() {
-            return None
+            return None;
         }
 
         // Check if no block left.
         if self.block_pos as usize >= self.t.block_index.len() {
-            return None
+            return None;
         }
         if self.block_iter.is_none() {
             let block_res = self.t.block(self.block_pos as usize);

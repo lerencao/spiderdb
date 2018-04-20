@@ -1,11 +1,7 @@
-pub struct Txn {
-
-}
+pub struct Txn {}
 
 impl Txn {
-    pub fn set(key: &[u8], value: &[u8]) {
-
-    }
+    pub fn set(key: &[u8], value: &[u8]) {}
 
     fn modify() {}
 }
