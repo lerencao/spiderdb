@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{Result, Seek, SeekFrom};
 use std::io::{Read, Result as IoResult, Write};
 
+#[derive(Debug)]
 pub struct LogFile {
     fid: u32,
     file_path: PathBuf,

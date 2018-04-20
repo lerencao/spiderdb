@@ -14,16 +14,10 @@ use super::write::{Value, ValuePointer};
 
 use super::segment::LogFile;
 
-pub struct ValueLog {
-    dir_path: PathBuf,
-    segment_max_size: u32,
-    log_files: HashMap<u32, LogFile>,
-    cur_fid: u32,
-}
-
 pub struct ValueOption {
     dir: String,
     segment_max_size: u32,
+    sync: bool,
 }
 
 impl Default for ValueOption {
@@ -35,8 +29,39 @@ impl Default for ValueOption {
                 .to_str()
                 .unwrap()
                 .to_string(),
+            sync: false,
             segment_max_size: 1024 * 1024 * 128,
         }
+    }
+}
+
+impl ValueOption {
+    pub fn new(dir: &Path, segment_max_size: u32, sync: bool) -> ValueOption {
+        ValueOption {
+            dir: dir.to_str().unwrap().to_string(),
+            segment_max_size,
+            sync
+        }
+    }
+}
+
+
+#[derive(Debug)]
+pub struct ValueLog {
+    dir_path: PathBuf,
+    segment_max_size: u32,
+    sync: bool,
+    log_files: HashMap<u32, LogFile>,
+    cur_fid: u32,
+    write_buffer: Vec<u8>,
+}
+
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::Result as FmtResult;
+impl Display for ValueLog {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        write!(f, "value_log(dir: {:?}, segment_max_size: {:?}, sync: {:?}, cur_fid: {:?})", &self.dir_path, self.segment_max_size, self.sync, self.cur_fid)
     }
 }
 
@@ -108,8 +133,10 @@ impl ValueLog {
         Ok(ValueLog {
             dir_path,
             segment_max_size: opt.segment_max_size,
+            sync: opt.sync,
             cur_fid,
             log_files,
+            write_buffer: Vec::with_capacity(1024 * 8)
         })
     }
 
@@ -151,10 +178,8 @@ impl ValueLog {
 
     pub fn write<'a>(&mut self, entries: &[Value]) -> IoResult<Vec<ValuePointer>> {
         self.rollover_if_necessary()?;
-
-        use self::bytes::BufMut;
-
-        let mut buffer_writer = BytesMut::with_capacity(8 * 1024).writer();
+        // TODO: shrunk buffer ?
+        self.write_buffer.clear();
         let mut value_pointers = Vec::with_capacity(entries.len());
 
         {
@@ -162,22 +187,24 @@ impl ValueLog {
                 .and_then(|s| s.write_offset())
                 .unwrap();
             for entry in entries {
-                let len = entry.encode(&mut buffer_writer)?;
+                let len = entry.encode(&mut self.write_buffer)?;
                 value_pointers.push(ValuePointer::new(self.cur_fid, cur_offset, len));
                 cur_offset += len;
             }
+            self.write_buffer.flush()?;
         }
 
-        // flush after all entries written.
-        {
-            buffer_writer.flush()?;
-            let segment = self.active_segment_mut().unwrap();
-            segment.write_bytes(buffer_writer.get_ref(), true)?;
-        }
-
-        buffer_writer.get_mut().clear();
+        // write all entries.
+        self.internal_write()?;
 
         Ok(value_pointers)
+    }
+
+    fn internal_write(&mut self) -> IoResult<()> {
+        let segment = self.log_files.get_mut(&self.cur_fid).unwrap();
+        segment.write_bytes(&self.write_buffer, self.sync)?;
+        self.write_buffer.clear();
+        Ok(())
     }
 
     fn should_rollover(&self) -> bool {
@@ -232,10 +259,6 @@ impl ValueLog {
 mod tests {
     use super::*;
     use std::fs::File;
-    #[test]
-    fn assert_always_true() {
-        assert!(true)
-    }
 
     #[test]
     fn test_open() {
@@ -307,6 +330,7 @@ mod tests {
         let mut vl = ValueLog::open(&ValueOption {
             dir: tmp_dir.path().to_str().unwrap().to_string(),
             segment_max_size: 32,
+            ..Default::default()
         }).unwrap();
 
         let ents = vec![Value::new(b"11", b"222222"); 2];
@@ -333,6 +357,7 @@ mod tests {
         let mut vl = ValueLog::open(&ValueOption {
             dir: tmp_dir.path().to_str().unwrap().to_string(),
             segment_max_size: 32,
+            ..Default::default()
         }).unwrap();
         let ents = vec![Value::new(b"1", b"1"), Value::new(b"2", b"2")];
         let pointers = vl.write(&ents).unwrap();
@@ -356,6 +381,7 @@ mod tests {
             assert_eq!(ents2[i], value.unwrap());
         }
     }
+
 }
 
 #[cfg(test)]
@@ -368,6 +394,7 @@ mod read_tests {
         let mut vl = ValueLog::open(&ValueOption {
             dir: tmp_dir.path().to_str().unwrap().to_string(),
             segment_max_size: 32,
+            ..Default::default()
         }).unwrap();
         let ents = vec![Value::new(b"11", b"222222"), Value::new(b"22", b"333333")];
         let pointers = vl.write(&ents).unwrap();
