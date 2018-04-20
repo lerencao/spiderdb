@@ -3,8 +3,6 @@ extern crate tempdir;
 use self::bytes::BytesMut;
 use std::io::Result;
 use std::result::Result as StdResult;
-use byteorder::WriteBytesExt;
-use byteorder::BigEndian;
 
 use std::fs::{create_dir_all, read_dir, OpenOptions};
 use failure::Error;
@@ -217,7 +215,7 @@ impl ValueLog {
 // Impl read related ops
 impl ValueLog {
     pub fn read(&mut self, pointer: &ValuePointer) -> IoResult<Value> {
-        if (pointer.fid() == self.cur_fid && pointer.offset() >= self.write_offset().unwrap()) {
+        if pointer.fid() == self.cur_fid && pointer.offset() >= self.write_offset().unwrap() {
             Err(ErrorKind::UnexpectedEof)?
         }
         match self.log_files.get_mut(&pointer.fid()) {
@@ -363,7 +361,6 @@ mod tests {
 #[cfg(test)]
 mod read_tests {
     use super::*;
-    use std::fs::File;
 
     #[test]
     fn test_read_value() {

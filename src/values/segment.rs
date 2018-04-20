@@ -2,9 +2,6 @@ use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::io::{Result, Seek, SeekFrom};
 use std::io::{Read, Result as IoResult, Write};
-use values::write::ValuePointer;
-use values::write::Value;
-use bytes::BytesMut;
 
 pub struct LogFile {
     fid: u32,

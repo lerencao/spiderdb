@@ -1,7 +1,7 @@
 extern crate crc;
 use self::crc::{Hasher32, crc32};
 use std::io::Result as IoResult;
-use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Value {
     key: Vec<u8>,
@@ -31,10 +31,7 @@ impl EntryHeader {
     pub fn decode<T: ReadBytesExt>(reader: &mut T) -> IoResult<EntryHeader> {
         let klen = reader.read_u32::<BigEndian>()?;
         let vlen = reader.read_u32::<BigEndian>()?;
-        Ok(EntryHeader {
-            klen,
-            vlen
-        })
+        Ok(EntryHeader { klen, vlen })
     }
 }
 
@@ -58,10 +55,7 @@ impl Value {
         // TODO: check crc
         let _crc32 = reader.read_u32::<BigEndian>()?;
 
-        Ok(Value {
-            key,
-            value
-        })
+        Ok(Value { key, value })
     }
 
     pub fn encode<T: WriteBytesExt>(&self, writer: &mut T) -> IoResult<u32> {
