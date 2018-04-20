@@ -12,6 +12,7 @@ use std::fs;
 pub mod table;
 pub mod level;
 pub mod txn;
+pub mod values;
 
 pub struct Config {
     dir: String,
