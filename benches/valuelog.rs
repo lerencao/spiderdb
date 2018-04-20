@@ -6,8 +6,8 @@ extern crate tempdir;
 extern crate test;
 
 use test::Bencher;
-use spiderdb::values::values::{ValueLog, ValueOption};
-use spiderdb::values::write::Value;
+use spiderdb::values::{ValueLog, ValueOption};
+use spiderdb::values::Value;
 use rand::{Rand, Rng, StdRng};
 use std::path;
 #[bench]

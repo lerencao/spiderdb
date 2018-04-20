@@ -1,3 +1,6 @@
-pub mod values;
-pub mod write;
-pub mod segment;
+mod log;
+mod structs;
+mod segment;
+
+pub use self::structs::*;
+pub use self::log::*;

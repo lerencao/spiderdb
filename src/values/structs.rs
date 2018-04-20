@@ -16,35 +16,35 @@ impl Value {
     }
 }
 
-struct EntryHeader {
+struct ValueHeader {
     klen: u32,
     vlen: u32,
 }
 
-impl EntryHeader {
+impl ValueHeader {
     pub fn encode<T: WriteBytesExt>(&self, writer: &mut T) -> IoResult<u32> {
         writer.write_u32::<BigEndian>(self.klen)?;
         writer.write_u32::<BigEndian>(self.vlen)?;
         Ok(4 + 4)
     }
 
-    pub fn decode<T: ReadBytesExt>(reader: &mut T) -> IoResult<EntryHeader> {
+    pub fn decode<T: ReadBytesExt>(reader: &mut T) -> IoResult<ValueHeader> {
         let klen = reader.read_u32::<BigEndian>()?;
         let vlen = reader.read_u32::<BigEndian>()?;
-        Ok(EntryHeader { klen, vlen })
+        Ok(ValueHeader { klen, vlen })
     }
 }
 
 impl Value {
-    fn get_header(&self) -> EntryHeader {
-        EntryHeader {
+    fn get_header(&self) -> ValueHeader {
+        ValueHeader {
             klen: self.key.len() as u32,
             vlen: self.value.len() as u32,
         }
     }
 
     pub fn decode<T: ReadBytesExt>(reader: &mut T) -> IoResult<Value> {
-        let header = EntryHeader::decode(reader)?;
+        let header = ValueHeader::decode(reader)?;
         let mut key = Vec::with_capacity(header.klen as usize);
         key.resize(header.klen as usize, 0);
         let mut value = Vec::with_capacity(header.vlen as usize);
@@ -121,7 +121,7 @@ mod test {
     use super::*;
     #[test]
     pub fn test_header_encode() {
-        let h = EntryHeader {
+        let h = ValueHeader {
             klen: 255 + 256,
             vlen: 255 + 256 + 256 * 256,
         };

@@ -10,7 +10,7 @@ use std::fs::DirEntry;
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::io::{ErrorKind, Result as IoResult, Seek, SeekFrom, Write};
-use super::write::{Value, ValuePointer};
+use super::structs::{Value, ValuePointer};
 
 use super::segment::LogFile;
 
