@@ -14,6 +14,7 @@ pub mod table;
 pub mod level;
 pub mod txn;
 pub mod values;
+mod lsm;
 
 pub struct Config {
     dir: String,

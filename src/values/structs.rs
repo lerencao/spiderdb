@@ -4,8 +4,8 @@ use std::io::Result as IoResult;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Value {
-    key: Vec<u8>,
-    value: Vec<u8>,
+    pub key: Vec<u8>,
+    pub value: Vec<u8>,
 }
 impl Value {
     pub fn new(key: &[u8], value: &[u8]) -> Value {
